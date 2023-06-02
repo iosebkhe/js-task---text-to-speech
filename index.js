@@ -7,52 +7,57 @@ export default class MyClass {
     this.credentials = credentials;
   }
 
-  // მთავარი მეთოდი რომელიც ამუშავებს ტექსტს.
-  // თუ ტოკენის ვადა გასულია ავტომატურად ითხოვს ახალ ტოკენს.
   async start() {
     if (!this.accessToken) {
       await this.retrieveAccessToken();
     }
 
-    if (this.text.length <= 150) {
-      this.sendTextToBackend(this.text);
-    } else {
-      let remainingText = this.text;
-      let startIndex = 0;
-      let endIndex = 150;
+    let substring = "";
+    const promises = [];
 
-      while (remainingText.length > 0) {
-        if (remainingText.length <= endIndex) {
-          this.sendTextToBackend(remainingText);
-          break;
+    for (let i = 0; i < this.text.length; i++) {
+      const character = this.text[i];
+
+      if (
+        character === "." ||
+        character === "!" ||
+        character === "?" ||
+        character === ";" ||
+        character === ","
+      ) {
+        if (substring.length > 0) {
+          const promise = this.sendTextToBackend(substring);
+          promises.push(promise);
+          substring = "";
         }
-
-        let subText = remainingText.substring(startIndex, endIndex);
-        let lastPunctuationIndex = this.getLastPunctuationIndex(subText);
-
-        if (lastPunctuationIndex === -1) {
-          // თუ ის ნიშნები არ იქნება ნაპოვნით რაც საჭიროა ტექსტის დასამუშავებლად
-          // ბექში აგზავნის მთლიან ტექსტს.
-          this.sendTextToBackend(subText);
-          remainingText = remainingText.substring(subText.length);
-        } else {
-          // დაამუშავე ტექსტი მოცემული პირობით.
-          let sentence = subText.substring(0, lastPunctuationIndex + 1);
-          this.sendTextToBackend(sentence);
-          remainingText = remainingText.substring(sentence.length);
-        }
+      } else {
+        substring += character;
       }
+    }
+
+    if (substring.length > 0) {
+      const promise = this.sendTextToBackend(substring);
+      promises.push(promise);
+    }
+
+    try {
+      const results = await Promise.all(promises);
+      results.forEach((result) => {
+        if (this.onresult) {
+          this.onresult(result);
+        }
+      });
+    } catch (error) {
+      alert(error);
     }
   }
 
-  // მეთოდი რომელიც გვაჩვენებს საბოლოო რეზულტატს.
-  onresult(result) {
+  onresultHandler(result) {
     if (this.onresult) {
       this.onresult(result);
     }
   }
 
-  // ტოკენის მოთხოვნა
   async retrieveAccessToken() {
     const loginEndpoint = "https://enagramm.com/API/Account/Login";
 
@@ -73,7 +78,6 @@ export default class MyClass {
     }
   }
 
-  // ტოკენის მოთხოვნა თუ წინას ვადა გაუვიდა.
   async refreshAccessToken() {
     if (!this.refreshToken) {
       throw new Error("Refresh token is missing.");
@@ -99,7 +103,6 @@ export default class MyClass {
     }
   }
 
-  // დაჭრილი ტექსტის გაგზავნა ბექენდში, და პასუხის მიღება
   sendTextToBackend(sentence) {
     const model = {
       Language: "ka",
@@ -110,27 +113,27 @@ export default class MyClass {
 
     const ttsEndpoint = "https://enagramm.com/API/TTS/SynthesizeTextAudioPath";
 
-    fetch(ttsEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        Authorization: `Bearer ${this.accessToken}`,
-      },
-      body: JSON.stringify(model),
-    })
-      .then((response) => response.json())
-      .then((result) => {
-        if (this.onresult) {
-          this.onresult(result);
-        }
+    return new Promise((resolve, reject) => {
+      fetch(ttsEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Authorization: `Bearer ${this.accessToken}`,
+        },
+        body: JSON.stringify(model),
       })
-      .catch((error) => {
-        alert(error);
-      });
+        .then((response) => response.json())
+        .then((result) => {
+          resolve(result);
+        })
+        .catch((error) => {
+          reject(error);
+        });
+    });
   }
 
   getLastPunctuationIndex(text) {
-    const punctuationMarks = [".", "!", "?", ";", ",", " "];
+    const punctuationMarks = [".", "!", "?", ";", ","];
     let lastPunctuationIndex = -1;
 
     for (let i = text.length - 1; i >= 0; i--) {
