@@ -164,7 +164,6 @@ export default class MyClass {
     })
       .then((response) => {
         if (response.status === 401) {
-          // Access token expired, refresh it and retry the request
           return this.refreshAccessToken().then(() =>
             this.sendTextToBackend(sentence)
           );
