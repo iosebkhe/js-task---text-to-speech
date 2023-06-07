@@ -28,32 +28,37 @@ export default class MyClass {
 
   // ტექსტის სეგმენტების დაჭრა სასვენ ნიშნებზე და სფეისზე
   cutSegmentOnPunctuation(segment) {
-    const punctuationPriority = [".", "!", "?", ";", ",", " "];
+    const punctuationPriority = [".", "!", "?", ";", ","];
     const cutSegments = [];
     let startIndex = 0;
-    let endIndex = 0;
 
     while (startIndex < segment.length) {
       let cuttingIndex = segment.length;
+      let punctuationIndex = -1;
 
-      // პირველ რიგში ვამოწმებთ სასვენ ნიშნებზე მინიჭებული პრიორიტეტით
+      // Find the punctuation index with the highest priority
       for (let i = 0; i < punctuationPriority.length; i++) {
         const punctuation = punctuationPriority[i];
-        const index = segment.indexOf(punctuation, endIndex);
+        const index = segment.indexOf(punctuation, startIndex);
 
-        if (index !== -1 && index <= endIndex) {
-          cuttingIndex = index + 1;
-          break;
+        if (index !== -1 && index < cuttingIndex) {
+          cuttingIndex = index;
+          punctuationIndex = i;
         }
       }
 
-      const cutSegment = segment.slice(startIndex, cuttingIndex);
-      cutSegments.push(cutSegment);
-
-      startIndex = cuttingIndex;
-      endIndex = cuttingIndex;
+      if (punctuationIndex !== -1) {
+        const cutSegment = segment.slice(startIndex, cuttingIndex + 1);
+        cutSegments.push(cutSegment);
+        startIndex = cuttingIndex + 1;
+      } else {
+        const cutSegment = segment.slice(startIndex);
+        cutSegments.push(cutSegment);
+        break;
+      }
     }
 
+    console.log(cutSegments);
     return cutSegments;
   }
 
