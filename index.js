@@ -5,59 +5,94 @@ export default class MyClass {
     this.accessToken = null;
     this.refreshToken = null;
     this.credentials = credentials;
+    this.segments = [];
   }
 
-  async start() {
-    if (!this.accessToken) {
-      await this.retrieveAccessToken();
-    }
+  // ტექსტის სეგმენტებად დაჭრა
+  cutText() {
+    const startIndex = 150;
+    const endIndex = 230;
+    const extractedSegments = [];
 
-    let substring = "";
-    const promises = [];
+    for (let i = 0; i < this.text.length; i += endIndex) {
+      const segment = this.text.slice(i, i + endIndex);
 
-    for (let i = 0; i < this.text.length; i++) {
-      const character = this.text[i];
-
-      if (
-        character === "." ||
-        character === "!" ||
-        character === "?" ||
-        character === ";" ||
-        character === ","
-      ) {
-        if (substring.length > 0) {
-          const promise = this.sendTextToBackend(substring);
-          promises.push(promise);
-          substring = "";
-        }
-      } else {
-        substring += character;
+      if (segment.length > startIndex) {
+        const extractedSegment = segment.slice(startIndex, endIndex);
+        extractedSegments.push(extractedSegment);
       }
     }
 
-    if (substring.length > 0) {
-      const promise = this.sendTextToBackend(substring);
-      promises.push(promise);
+    this.segments = extractedSegments;
+  }
+
+  // ტექსტის სეგმენტების დაჭრა სასვენ ნიშნებზე და სფეისზე
+  cutSegmentOnPunctuation(segment) {
+    const punctuationPriority = [".", "!", "?", ";", ",", " "];
+    const cutSegments = [];
+    let startIndex = 0;
+    let endIndex = 0;
+
+    while (startIndex < segment.length) {
+      let cuttingIndex = segment.length;
+
+      // პირველ რიგში ვამოწმებთ სასვენ ნიშნებზე მინიჭებული პრიორიტეტით
+      for (let i = 0; i < punctuationPriority.length; i++) {
+        const punctuation = punctuationPriority[i];
+        const index = segment.indexOf(punctuation, endIndex);
+
+        if (index !== -1 && index <= endIndex) {
+          cuttingIndex = index + 1;
+          break;
+        }
+      }
+
+      const cutSegment = segment.slice(startIndex, cuttingIndex);
+      cutSegments.push(cutSegment);
+
+      startIndex = cuttingIndex;
+      endIndex = cuttingIndex;
+    }
+
+    return cutSegments;
+  }
+
+  // სტარტ მეთოდი რომელიც ამუშავებს ტექსტს
+  async start() {
+    this.cutText();
+    await this.retrieveAccessToken();
+
+    const promises = [];
+
+    for (let i = 0; i < this.segments.length; i++) {
+      const segment = this.segments[i];
+      const cutSegments = this.cutSegmentOnPunctuation(segment);
+
+      for (let j = 0; j < cutSegments.length; j++) {
+        const cutSegment = cutSegments[j];
+        const promise = this.sendTextToBackend(cutSegment);
+        promises.push(promise);
+      }
     }
 
     try {
       const results = await Promise.all(promises);
       results.forEach((result) => {
-        if (this.onresult) {
-          this.onresult(result);
-        }
+        this.onresultHandler(result);
       });
     } catch (error) {
-      alert(error);
+      console.error(error);
     }
   }
 
+  // მეთოდი რომელსაც გამოაქვს რეზულტატი
   onresultHandler(result) {
     if (this.onresult) {
       this.onresult(result);
     }
   }
 
+  // ტოკენის მიღება
   async retrieveAccessToken() {
     const loginEndpoint = "https://enagramm.com/API/Account/Login";
 
@@ -78,9 +113,10 @@ export default class MyClass {
     }
   }
 
+  // ტოკენის დარეფრეშება თუ ძველს ვადა გაუვიდა
   async refreshAccessToken() {
     if (!this.refreshToken) {
-      throw new Error("Refresh token is missing.");
+      throw new Error("ტოკენი არ არსებობს");
     }
 
     const refreshTokenEndpoint =
@@ -103,7 +139,8 @@ export default class MyClass {
     }
   }
 
-  sendTextToBackend(sentence) {
+  // დაჭრილი ტექსტის გაგზავნა სერვერზე
+  async sendTextToBackend(sentence) {
     const model = {
       Language: "ka",
       Text: sentence,
@@ -113,36 +150,30 @@ export default class MyClass {
 
     const ttsEndpoint = "https://enagramm.com/API/TTS/SynthesizeTextAudioPath";
 
-    return new Promise((resolve, reject) => {
-      fetch(ttsEndpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          Authorization: `Bearer ${this.accessToken}`,
-        },
-        body: JSON.stringify(model),
-      })
-        .then((response) => response.json())
-        .then((result) => {
-          resolve(result);
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  }
-
-  getLastPunctuationIndex(text) {
-    const punctuationMarks = [".", "!", "?", ";", ","];
-    let lastPunctuationIndex = -1;
-
-    for (let i = text.length - 1; i >= 0; i--) {
-      if (punctuationMarks.includes(text[i])) {
-        lastPunctuationIndex = i;
-        break;
-      }
+    if (!this.accessToken) {
+      await this.retrieveAccessToken();
     }
 
-    return lastPunctuationIndex;
+    return fetch(ttsEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Authorization: `Bearer ${this.accessToken}`,
+      },
+      body: JSON.stringify(model),
+    })
+      .then((response) => {
+        if (response.status === 401) {
+          // Access token expired, refresh it and retry the request
+          return this.refreshAccessToken().then(() =>
+            this.sendTextToBackend(sentence)
+          );
+        }
+        return response.json();
+      })
+      .catch((error) => {
+        console.error(error);
+        throw error;
+      });
   }
 }
